@@ -34,7 +34,7 @@ const Navbar = () => {
       path: "/products", 
       label: "Product List", 
       icon: <Package className="w-4 h-4" />,
-      badge: "24"
+      badge: null
     },
     
     { 

@@ -59,7 +59,7 @@ const ProductItem = ({ product, onEdit, onDelete, viewMode = 'grid' }) => {
                   <Edit2 className="h-5 w-5" />
                 </button>
                 <button
-                  onClick={() => onDelete(product.id)}
+                  onClick={() => onDelete(product._id || product.id || product)}
                   className="p-2 text-danger hover:bg-red-50 rounded-lg transition-colors"
                   title="Delete"
                 >
@@ -137,7 +137,7 @@ const ProductItem = ({ product, onEdit, onDelete, viewMode = 'grid' }) => {
                 Edit
               </button>
               <button
-                onClick={() => onDelete(product.id)}
+                onClick={() => onDelete(product._id || product.id || product)}
                 className="flex items-center px-3 py-1.5 bg-red-50 text-danger rounded-lg hover:bg-red-100 transition-colors text-sm font-medium"
               >
                 <Trash2 className="h-4 w-4 mr-1" />

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import ProductList from '../components/ProductList';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import { 
   Package, 
   Plus, 
@@ -17,63 +18,8 @@ import {
   Database
 } from 'lucide-react';
 
-// Mock initial products
-const initialProducts = [
-  { 
-    id: 1, 
-    name: 'Quantum Headphones', 
-    price: 129.99, 
-    quantity: 45, 
-    description: 'Premium noise-canceling wireless headphones with 30-hour battery life', 
-    category: 'Electronics',
-    status: 'active'
-  },
-  { 
-    id: 2, 
-    name: 'Neo Keyboard', 
-    price: 89.99, 
-    quantity: 23, 
-    description: 'RGB mechanical keyboard with cherry MX switches', 
-    category: 'Electronics',
-    status: 'active'
-  },
-  { 
-    id: 3, 
-    name: 'Crystal 4K Monitor', 
-    price: 349.99, 
-    quantity: 8, 
-    description: '27-inch 4K UHD monitor with HDR support', 
-    category: 'Electronics',
-    status: 'low'
-  },
-  { 
-    id: 4, 
-    name: 'Sync USB-C Hub', 
-    price: 39.99, 
-    quantity: 67, 
-    description: '7-in-1 USB-C hub with 4K HDMI output', 
-    category: 'Accessories',
-    status: 'active'
-  },
-  { 
-    id: 5, 
-    name: 'Nova Gaming Mouse', 
-    price: 59.99, 
-    quantity: 32, 
-    description: 'Wireless gaming mouse with 16000 DPI sensor', 
-    category: 'Electronics',
-    status: 'active'
-  },
-  { 
-    id: 6, 
-    name: 'Aero Laptop Stand', 
-    price: 29.99, 
-    quantity: 19, 
-    description: 'Adjustable aluminum laptop stand for better ergonomics', 
-    category: 'Accessories',
-    status: 'active'
-  },
-];
+// initialProducts fallback empty
+const initialProducts = [];
 
 const Products = () => {
   const [products, setProducts] = useState([]);
@@ -82,25 +28,36 @@ const Products = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [activeFilter, setActiveFilter] = useState('all');
 
-  useEffect(() => {
-    // Simulate API call
-    setTimeout(() => {
-      const savedProducts = localStorage.getItem('neostock_products');
-      if (savedProducts) {
-        setProducts(JSON.parse(savedProducts));
-      } else {
-        setProducts(initialProducts);
-      }
-      setIsLoading(false);
-    }, 500);
-  }, []);
+  const auth = useAuth();
 
-  // Save to localStorage when products change
-  useEffect(() => {
-    if (products.length > 0) {
-      localStorage.setItem('neostock_products', JSON.stringify(products));
+  const safeParse = async (res) => {
+    const ct = res.headers.get('content-type') || '';
+    const text = await res.text();
+    if (ct.includes('application/json')) {
+      try { return JSON.parse(text); }
+      catch (e) { throw new Error('Invalid JSON response: ' + text.slice(0,200)); }
     }
-  }, [products]);
+    throw new Error(text || res.statusText || 'Non-JSON response from server');
+  };
+
+  useEffect(() => {
+    const fetchProducts = async () => {
+      try {
+        const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+        const headers = { 'Content-Type': 'application/json', ...(auth?.getAuthHeader ? auth.getAuthHeader() : {}) };
+        const res = await fetch(`${API_BASE}/api/products`, { headers });
+        const data = await safeParse(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to fetch products');
+        setProducts(data);
+      } catch (err) {
+        console.error('Fetch products error:', err);
+        setProducts(initialProducts);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchProducts();
+  }, [auth]);
 
   const handleAddProduct = (productData) => {
     const newProduct = {
@@ -116,10 +73,19 @@ const Products = () => {
 
   // Note: product add/edit handled on the separate /add-products page
 
-  const handleDeleteProduct = (productId) => {
-    if (window.confirm('Are you sure you want to delete this product?')) {
-      setProducts(products.filter(p => p.id !== productId));
+  const handleDeleteProduct = async (productId) => {
+    if (!window.confirm('Are you sure you want to delete this product?')) return;
+    try {
+      const id = productId._id || productId.id || productId;
+      const headers = { ...(auth?.getAuthHeader ? auth.getAuthHeader() : {}) };
+      const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+      const res = await fetch(`${API_BASE}/api/products/${id}`, { method: 'DELETE', headers });
+      if (!res.ok) throw new Error('Delete failed');
+      setProducts(products.filter(p => (p._id || p.id) !== id));
       showToast('Product deleted successfully!', 'success');
+    } catch (err) {
+      console.error('Delete error:', err);
+      showToast('Failed to delete product', 'error');
     }
   };
 
@@ -143,7 +109,7 @@ const Products = () => {
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
         const text = e.target.result;
         const lines = text.split('\n');
@@ -159,7 +125,6 @@ const Products = () => {
             });
             return {
               ...product,
-              id: Date.now() + Math.random(),
               price: parseFloat(product.price),
               quantity: parseInt(product.quantity),
               status: parseInt(product.quantity) < 10 ? 'low' : 'active',
@@ -167,9 +132,24 @@ const Products = () => {
               updatedAt: new Date().toISOString(),
             };
           });
-        
-        setProducts([...products, ...importedProducts]);
-        showToast(`${importedProducts.length} products imported!`, 'success');
+        // POST imported products to backend
+        try {
+          const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+          const headers = { 'Content-Type': 'application/json', ...(auth?.getAuthHeader ? auth.getAuthHeader() : {}) };
+          const promises = importedProducts.map(p => fetch(`${API_BASE}/api/products`, {
+            method: 'POST', headers, body: JSON.stringify(p)
+          }).then(async (r) => {
+            const data = await safeParse(r);
+            if (!r.ok) throw new Error(data.error || 'Create failed');
+            return data;
+          }));
+          const created = await Promise.all(promises);
+          setProducts([...products, ...created]);
+          showToast(`${created.length} products imported!`, 'success');
+        } catch (err) {
+          console.error('Import error:', err);
+          showToast('Error importing products to server', 'error');
+        }
       } catch (error) {
         showToast('Error importing CSV file', 'error');
       }

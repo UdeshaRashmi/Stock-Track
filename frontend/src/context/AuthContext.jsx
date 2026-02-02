@@ -5,60 +5,79 @@ const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
+  const [token, setToken] = useState(null);
   const navigate = useNavigate();
+
+  const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
   useEffect(() => {
     try {
       const raw = localStorage.getItem('neo_auth');
-      if (raw) setUser(JSON.parse(raw));
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        setUser(parsed.user || null);
+        setToken(parsed.token || null);
+      }
     } catch (e) {
       console.error('Failed reading auth from storage', e);
     }
   }, []);
 
+  const safeParse = async (res) => {
+    const ct = res.headers.get('content-type') || '';
+    const text = await res.text();
+    if (ct.includes('application/json')) {
+      try {
+        return JSON.parse(text);
+      } catch (e) {
+        throw new Error('Invalid JSON response: ' + text.slice(0, 200));
+      }
+    }
+    // Non-JSON response (likely HTML error page)
+    throw new Error(text || res.statusText || 'Non-JSON response from server');
+  };
+
   const signup = async ({ name, email, password }) => {
-    const raw = localStorage.getItem('neo_users');
-    let users = [];
-    try {
-      users = raw ? JSON.parse(raw) : [];
-    } catch (e) {
-      users = [];
-    }
-    if (users.find(u => u.email === email)) {
-      throw new Error('Email already registered');
-    }
-    const newUser = { id: Date.now(), name, email, password };
-    users.push(newUser);
-    localStorage.setItem('neo_users', JSON.stringify(users));
-    localStorage.setItem('neo_auth', JSON.stringify({ id: newUser.id, name: newUser.name, email: newUser.email }));
-    setUser({ id: newUser.id, name: newUser.name, email: newUser.email });
-    return newUser;
+    const res = await fetch(`${API_BASE}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, email, password })
+    });
+    const body = await safeParse(res);
+    if (!res.ok) throw new Error(body.error || 'Signup failed');
+    const auth = { user: body.user, token: body.token };
+    localStorage.setItem('neo_auth', JSON.stringify(auth));
+    setUser(auth.user);
+    setToken(auth.token);
+    return auth.user;
   };
 
   const login = async ({ email, password }) => {
-    const raw = localStorage.getItem('neo_users');
-    let users = [];
-    try {
-      users = raw ? JSON.parse(raw) : [];
-    } catch (e) {
-      users = [];
-    }
-    const found = users.find(u => u.email === email && u.password === password);
-    if (!found) throw new Error('Invalid credentials');
-    const auth = { id: found.id, name: found.name, email: found.email };
+    const res = await fetch(`${API_BASE}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password })
+    });
+    const body = await safeParse(res);
+    if (!res.ok) throw new Error(body.error || 'Login failed');
+    const auth = { user: body.user, token: body.token };
     localStorage.setItem('neo_auth', JSON.stringify(auth));
-    setUser(auth);
-    return auth;
+    setUser(auth.user);
+    setToken(auth.token);
+    return auth.user;
   };
 
   const logout = () => {
     localStorage.removeItem('neo_auth');
     setUser(null);
-    navigate('/');
+    setToken(null);
+    navigate('/login');
   };
 
+  const getAuthHeader = () => (token ? { Authorization: `Bearer ${token}` } : {});
+
   return (
-    <AuthContext.Provider value={{ user, signup, login, logout }}>
+    <AuthContext.Provider value={{ user, token, signup, login, logout, getAuthHeader }}>
       {children}
     </AuthContext.Provider>
   );

@@ -1,6 +1,7 @@
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import ProductForm from '../components/ProductForm';
+import { useAuth } from '../context/AuthContext';
 
 const AddProducts = () => {
   const navigate = useNavigate();
@@ -9,25 +10,26 @@ const AddProducts = () => {
   const initialData = state.initialData || {};
   const isEditing = !!state.editing;
 
-  const submitHandler = (data) => {
-    const saved = localStorage.getItem('neostock_products');
-    const products = saved ? JSON.parse(saved) : [];
+  const auth = useAuth();
 
-    if (isEditing && initialData.id) {
-      const updated = products.map(p => p.id === initialData.id ? { ...p, ...data, updatedAt: new Date().toISOString(), status: data.quantity < 10 ? 'low' : 'active' } : p);
-      localStorage.setItem('neostock_products', JSON.stringify(updated));
-    } else {
-      const newProduct = {
-        ...data,
-        id: products.length > 0 ? Math.max(...products.map(p => p.id)) + 1 : Date.now(),
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        status: data.quantity < 10 ? 'low' : 'active'
-      };
-      localStorage.setItem('neostock_products', JSON.stringify([...products, newProduct]));
+  const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+
+  const submitHandler = async (data) => {
+    try {
+      const headers = { 'Content-Type': 'application/json', ...auth.getAuthHeader() };
+      if (isEditing && initialData && (initialData._id || initialData.id)) {
+        const id = initialData._id || initialData.id;
+        const res = await fetch(`${API_BASE}/api/products/${id}`, { method: 'PUT', headers, body: JSON.stringify(data) });
+        if (!res.ok) throw new Error('Failed to update product');
+      } else {
+        const res = await fetch(`${API_BASE}/api/products`, { method: 'POST', headers, body: JSON.stringify(data) });
+        if (!res.ok) throw new Error('Failed to create product');
+      }
+      navigate('/products');
+    } catch (err) {
+      console.error('API error:', err);
+      alert('Failed to save product. See console for details.');
     }
-
-    navigate('/products');
   };
 
   return (

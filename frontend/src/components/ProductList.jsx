@@ -153,7 +153,7 @@ const ProductList = ({ products, onEdit, onDelete }) => {
         }>
           {sortedProducts.map((product) => (
             <ProductItem
-              key={product.id}
+              key={product._id || product.id}
               product={product}
               onEdit={onEdit}
               onDelete={onDelete}
